@@ -24,7 +24,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     permissions:
-      contents: write
+      contents: read
       pages: write
       id-token: write
     env:
@@ -38,8 +38,8 @@ jobs:
           python-version: '3.14'
       - name: Test source generation and nightly identity
         run: python -m unittest discover -s tests -v
-      - name: Publish nightly IPA and generate sources
-        run: python scripts/publish.py --publish
+      - name: Generate sources from official release IPAs
+        run: python scripts/publish.py
       - name: Configure GitHub Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - name: Upload site

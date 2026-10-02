@@ -1,22 +1,17 @@
 """Publish a SideStore source from the official OpenTubeX release IPAs."""
 
-import argparse
 import hashlib
 import json
 import plistlib
 import re
 import shutil
 import subprocess
-import tempfile
 import zipfile
 from pathlib import Path
 
 UPSTREAM = "OpenTubeX/OpenTubeX"
-REPOSITORY = "OpenTubeX/sidestore"
 SOURCE_URL = "https://sidestore.opentubex.org/source.json"
 NIGHTLY_ID = "org.opentubex.app.nightly"
-# Earlier packages are immutable; revision 3 also recognizes nightly links.
-REPACKAGE_REVISION = 3
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -58,60 +53,12 @@ def inspect_ipa(path):
         return plist_path, info
 
 
-def repackage_nightly(original, output):
-    plist_path, info = inspect_ipa(original)
-    if info["CFBundleIdentifier"] != "org.opentubex.app":
-        raise ValueError("Expected the official unsigned OpenTubeX app identity")
-    app_path = plist_path.removesuffix("Info.plist")
-    info["CFBundleIdentifier"] = NIGHTLY_ID
-    info["CFBundleDisplayName"] = "OpenTubeX Nightly"
-    info["CFBundleName"] = "OpenTubeX Nightly"
-    info["CFBundleVersion"] = f"{info['CFBundleVersion']}.{REPACKAGE_REVISION}"
-    for url_type in info.get("CFBundleURLTypes", []):
-        if url_type.get("CFBundleURLName") == "org.opentubex.app":
-            url_type["CFBundleURLName"] = NIGHTLY_ID
-        url_type["CFBundleURLSchemes"] = [
-            "opentubex-nightly" if scheme == "opentubex" else scheme
-            for scheme in url_type.get("CFBundleURLSchemes", [])
-        ]
-
-    with zipfile.ZipFile(original) as source, zipfile.ZipFile(output, "w") as target:
-        names = source.namelist()
-        if any(name.startswith(app_path + "_CodeSignature/") or
-               name == app_path + "embedded.mobileprovision" or
-               name.startswith(app_path + "PlugIns/") for name in names):
-            raise ValueError("Nightly repackaging requires an unsigned app without extensions")
-        config_path = app_path + "capacitor.config.json"
-        if config_path not in names:
-            raise ValueError("Missing Capacitor configuration")
-        # Released IPAs predate the nightly scheme. Update their URL normalizer;
-        # future native nightly IPAs are served directly without repackaging.
-        old_scheme = br"/^opentubex:(?:\/\/)?/"
-        new_scheme = br"/^opentubex(?:-nightly)?:(?:\/\/)?/"
-        renderer_paths = [name for name in names if name.startswith(app_path + "public/") and name.endswith(".js")
-                          and old_scheme in source.read(name)]
-        if len(renderer_paths) != 1 or source.read(renderer_paths[0]).count(old_scheme) != 1:
-            raise ValueError("Expected exactly one released renderer URL normalizer")
-        for entry in source.infolist():
-            content = source.read(entry)
-            if entry.filename == plist_path:
-                content = plistlib.dumps(info, fmt=plistlib.FMT_BINARY)
-            elif entry.filename == config_path:
-                config = json.loads(content)
-                config.update(appId=NIGHTLY_ID, appName="OpenTubeX Nightly")
-                content = (json.dumps(config, indent=2) + "\n").encode()
-            elif entry.filename == renderer_paths[0]:
-                content = content.replace(old_scheme, new_scheme)
-            # Retain file permissions, symlinks, timestamps and nested frameworks.
-            target.writestr(entry, content)
-    return info
-
-
 def app_listing(channel, release, ipa, download_url):
     _, info = inspect_ipa(ipa)
     expected_id = NIGHTLY_ID if channel == "nightly" else "org.opentubex.app"
     if info["CFBundleIdentifier"] != expected_id:
-        raise ValueError(f"Unexpected {channel} IPA identity")
+        raise ValueError(f"Unexpected {channel} IPA identity: expected {expected_id}, "
+                         f"got {info['CFBundleIdentifier']}")
     privacy = {key: value for key, value in info.items() if key.startswith("NS") and key.endswith("UsageDescription")}
     with ipa.open("rb") as file:
         digest = hashlib.file_digest(file, "sha256").hexdigest()
@@ -139,47 +86,7 @@ def app_listing(channel, release, ipa, download_url):
     }
 
 
-def publish_nightly(release, ipa):
-    upstream_tag = release["tag_name"]
-    tag = f"{upstream_tag}-sidestore-{REPACKAGE_REVISION}"
-    # Query first so an unchanged scheduled run never replaces an installed build.
-    releases = json.loads(gh("api", "--paginate", "--slurp", f"repos/{REPOSITORY}/releases?per_page=100"))
-    existing = next((item for page in releases for item in page if item["tag_name"] == tag), None)
-    if existing:
-        asset = next((item for item in existing["assets"] if item["name"] == ipa.name), None)
-        if asset:
-            with ipa.open("rb") as file:
-                digest = "sha256:" + hashlib.file_digest(file, "sha256").hexdigest()
-            if asset.get("digest") == digest:
-                return asset["browser_download_url"]
-            # Older GitHub release assets may not expose a digest.
-            with tempfile.TemporaryDirectory() as directory:
-                gh("release", "download", tag, "--repo", REPOSITORY,
-                   "--pattern", ipa.name, "--dir", directory)
-                if Path(directory, ipa.name).read_bytes() != ipa.read_bytes():
-                    raise ValueError("Published nightly differs from this package; refusing to replace it")
-            return asset["browser_download_url"]
-        gh("release", "upload", tag, str(ipa), "--repo", REPOSITORY)
-    else:
-        notes = (f"OpenTubeX Nightly for SideStore, based on [{upstream_tag}]({release['html_url']}).\n\n"
-                 "The unsigned IPA has a separate bundle identifier and display name so it can "
-                 "install alongside stable, and registers the opentubex-nightly URL scheme. "
-                 "The build number includes the packaging revision. SideStore signs it with your Apple Account.\n\n"
-                 f"App source: https://github.com/{UPSTREAM}/tree/{upstream_tag}\n"
-                 "Repository source: https://github.com/OpenTubeX/sidestore\n")
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".md") as file:
-            file.write(notes)
-            file.flush()
-            gh("release", "create", tag, str(ipa), "--repo", REPOSITORY,
-               "--title", f"OpenTubeX Nightly {upstream_tag.removeprefix('v')} (package {REPACKAGE_REVISION})",
-               "--notes-file", file.name, "--prerelease", "--latest=false")
-    return f"https://github.com/{REPOSITORY}/releases/download/{tag}/{ipa.name}"
-
-
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--publish", action="store_true", help="Upload nightly IPA to GitHub Releases")
-    args = parser.parse_args()
     pages = json.loads(gh("api", "--paginate", "--slurp", f"repos/{UPSTREAM}/releases?per_page=100"))
     selected = select_releases([release for page in pages for release in page])
     incoming = ROOT / "incoming"
@@ -195,12 +102,6 @@ def main():
         if ipa.stat().st_size != asset["size"]:
             raise ValueError("Downloaded IPA size does not match release metadata")
         download_url = asset["browser_download_url"]
-        if channel == "nightly" and inspect_ipa(ipa)[1]["CFBundleIdentifier"] != NIGHTLY_ID:
-            output = directory / asset["name"].replace("-ios-unsigned.ipa", "-ios-nightly.ipa")
-            repackage_nightly(ipa, output)
-            ipa = output
-            download_url = (publish_nightly(release, ipa) if args.publish else
-                            f"https://github.com/{REPOSITORY}/releases/download/{release['tag_name']}-sidestore-{REPACKAGE_REVISION}/{ipa.name}")
         apps.append(app_listing(channel, release, ipa, download_url))
         print(f"{channel}: {release['tag_name']} ({apps[-1]['bundleIdentifier']})")
     site = ROOT / "site"

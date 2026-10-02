@@ -1,10 +1,13 @@
 import importlib.util
+import hashlib
 import json
 import plistlib
+import shutil
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("publish", Path(__file__).resolve().parents[1] / "scripts/publish.py")
 publish = importlib.util.module_from_spec(spec)
@@ -36,75 +39,94 @@ class PublishTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             publish.select_releases([release("v0.35.2-beta", "2026-10-01T00:00:00Z")])
 
-    def make_ipa(self, directory, *, signed=False, extension=False):
-        path = Path(directory, "original.ipa")
-        info = {"CFBundleIdentifier": "org.opentubex.app", "CFBundleDisplayName": "OpenTubeX",
+    def make_ipa(self, directory, *, channel="stable"):
+        path = Path(directory, f"{channel}.ipa")
+        app_id = publish.NIGHTLY_ID if channel == "nightly" else "org.opentubex.app"
+        info = {"CFBundleIdentifier": app_id,
                 "CFBundleVersion": "13499", "CFBundleShortVersionString": "0.35.2",
-                "MinimumOSVersion": "17.4", "NSCameraUsageDescription": "Scan a QR code.",
-                "CFBundleURLTypes": [{"CFBundleURLName": "org.opentubex.app", "CFBundleURLSchemes": ["opentubex"]}]}
+                "MinimumOSVersion": "17.4", "NSCameraUsageDescription": "Scan a QR code."}
         with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("Payload/App.app/Info.plist", plistlib.dumps(info, fmt=plistlib.FMT_BINARY))
-            archive.writestr("Payload/App.app/capacitor.config.json", json.dumps({"appId": "org.opentubex.app", "appName": "OpenTubeX", "plugins": {"Share": {}}}))
-            archive.writestr("Payload/App.app/public/web.js", br"const openUrl = url => url.replace(/^opentubex:(?:\/\/)?/, '').replace(/^(https?)\/\//, '$1://');")
-            executable = zipfile.ZipInfo("Payload/App.app/App")
-            executable.external_attr = 0o100755 << 16
-            archive.writestr(executable, b"executable")
-            archive.writestr("Payload/App.app/Frameworks/Python.framework/_CodeSignature/CodeResources", b"framework-signature")
-            if signed:
-                archive.writestr("Payload/App.app/_CodeSignature/CodeResources", b"app-signature")
-            if extension:
-                archive.writestr("Payload/App.app/PlugIns/Extension.appex/Info.plist", b"extension")
         return path
 
-    def test_nightly_identity_changes_without_touching_executable_or_frameworks(self):
-        with tempfile.TemporaryDirectory() as directory:
-            original = self.make_ipa(directory)
-            output = Path(directory, "nightly.ipa")
-            publish.repackage_nightly(original, output)
-            with zipfile.ZipFile(original) as source, zipfile.ZipFile(output) as target:
-                self.assertEqual(source.namelist(), target.namelist())
-                for name in source.namelist():
-                    if name.endswith(("Info.plist", "capacitor.config.json", "public/web.js")):
-                        continue
-                    self.assertEqual(source.read(name), target.read(name))
-                    self.assertEqual(source.getinfo(name).external_attr, target.getinfo(name).external_attr)
-                info = plistlib.loads(target.read("Payload/App.app/Info.plist"))
-                self.assertEqual(info["CFBundleIdentifier"], publish.NIGHTLY_ID)
-                self.assertEqual(info["CFBundleDisplayName"], "OpenTubeX Nightly")
-                self.assertEqual(info["CFBundleURLTypes"][0]["CFBundleURLSchemes"], ["opentubex-nightly"])
-                config = json.loads(target.read("Payload/App.app/capacitor.config.json"))
-                self.assertEqual(config["appId"], publish.NIGHTLY_ID)
-                self.assertEqual(config["appName"], "OpenTubeX Nightly")
-                self.assertEqual(config["plugins"], {"Share": {}})
-                self.assertIn(br"/^opentubex(?:-nightly)?:(?:\/\/)?/", target.read("Payload/App.app/public/web.js"))
-            second = Path(directory, "second.ipa")
-            publish.repackage_nightly(original, second)
-            self.assertEqual(output.read_bytes(), second.read_bytes())
-            self.assertEqual(publish.inspect_ipa(original)[1]["CFBundleIdentifier"], "org.opentubex.app")
-
-    def test_refuses_to_repackage_signed_apps_or_extensions(self):
-        for flags in ({"signed": True}, {"extension": True}):
-            with self.subTest(flags=flags), tempfile.TemporaryDirectory() as directory:
-                original = self.make_ipa(directory, **flags)
-                with self.assertRaises(ValueError):
-                    publish.repackage_nightly(original, Path(directory, "nightly.ipa"))
-
     def test_listing_matches_actual_ipa_including_build_and_permissions(self):
+        for channel in ("stable", "nightly"):
+            with self.subTest(channel=channel), tempfile.TemporaryDirectory() as directory:
+                ipa = self.make_ipa(directory, channel=channel)
+                tag = "v0.35.2-nightly-1758" if channel == "nightly" else "v0.35.2-beta"
+                metadata = release(tag, "2026-10-02T02:00:00Z", prerelease=channel == "nightly")
+                url = f"https://github.com/OpenTubeX/OpenTubeX/releases/download/{tag}/{ipa.name}"
+                listing = publish.app_listing(channel, metadata, ipa, url)
+                expected_id = publish.NIGHTLY_ID if channel == "nightly" else "org.opentubex.app"
+                self.assertEqual(listing["bundleIdentifier"], expected_id)
+                version = listing["versions"][0]
+                self.assertEqual(version["version"], "0.35.2")
+                self.assertEqual(version["buildVersion"], "13499")
+                self.assertEqual(version["downloadURL"], url)
+                self.assertEqual(version["size"], ipa.stat().st_size)
+                self.assertEqual(version["sha256"], hashlib.sha256(ipa.read_bytes()).hexdigest())
+                self.assertEqual(version["minOSVersion"], "17.4")
+                self.assertEqual(listing["appPermissions"]["privacy"], {"NSCameraUsageDescription": "Scan a QR code."})
+                other_channel = "stable" if channel == "nightly" else "nightly"
+                with self.assertRaisesRegex(ValueError, f"Unexpected {other_channel} IPA identity"):
+                    publish.app_listing(other_channel, metadata, ipa, url)
+
+    def run_publisher(self, root, *, nightly_identity="nightly"):
+        fixtures = root / "fixtures"
+        fixtures.mkdir()
+        releases = [release("v0.35.2-beta", "2026-09-30T22:00:00Z"),
+                    release("v0.35.2-nightly-1758", "2026-10-02T12:00:00Z", prerelease=True)]
+        ipas = {}
+        for channel, metadata in zip(("stable", "nightly"), releases):
+            fixture = fixtures / channel
+            fixture.mkdir()
+            ipa = self.make_ipa(fixture, channel=nightly_identity if channel == "nightly" else channel)
+            asset = metadata["assets"][0]
+            asset.update(size=ipa.stat().st_size,
+                         browser_download_url=f"https://github.com/OpenTubeX/OpenTubeX/releases/download/{metadata['tag_name']}/{asset['name']}")
+            ipas[metadata["tag_name"]] = ipa
+
+        def gh(*args):
+            if args == ("api", "--paginate", "--slurp", "repos/OpenTubeX/OpenTubeX/releases?per_page=100"):
+                return json.dumps([releases])
+            if args[:2] == ("release", "download") and args[3:5] == ("--repo", "OpenTubeX/OpenTubeX"):
+                shutil.copyfile(ipas[args[2]], Path(args[8], args[6]))
+                return ""
+            self.fail(f"Unexpected GitHub operation: {args}")
+
+        static = root / "static"
+        static.mkdir()
+        (static / "index.html").write_text("SideStore")
+        with patch.object(publish, "ROOT", root), patch.object(publish, "gh", side_effect=gh):
+            publish.main()
+        return releases, ipas
+
+    def test_generates_all_sources_using_unmodified_official_release_ipas(self):
         with tempfile.TemporaryDirectory() as directory:
-            original = self.make_ipa(directory)
-            output = Path(directory, "nightly.ipa")
-            publish.repackage_nightly(original, output)
-            metadata = release("v0.35.2-nightly-1757", "2026-10-02T02:00:00Z", prerelease=True)
-            listing = publish.app_listing("nightly", metadata, output, "https://example.org/nightly.ipa")
-            self.assertEqual(listing["bundleIdentifier"], publish.NIGHTLY_ID)
-            version = listing["versions"][0]
-            self.assertEqual(version["version"], "0.35.2")
-            self.assertEqual(version["buildVersion"], "13499.3")
-            self.assertEqual(version["size"], output.stat().st_size)
-            self.assertEqual(version["minOSVersion"], "17.4")
-            self.assertEqual(listing["appPermissions"]["privacy"], {"NSCameraUsageDescription": "Scan a QR code."})
-            with self.assertRaises(ValueError):
-                publish.app_listing("stable", metadata, output, "https://example.org/nightly.ipa")
+            root = Path(directory)
+            releases, ipas = self.run_publisher(root)
+            source = json.loads((root / "site/source.json").read_text())
+            self.assertEqual(len(source["apps"]), 2)
+            for channel, metadata, app in zip(("stable", "nightly"), releases, source["apps"]):
+                asset = metadata["assets"][0]
+                self.assertEqual(app["versions"][0]["downloadURL"], asset["browser_download_url"])
+                self.assertEqual(app["versions"][0]["buildVersion"], "13499")
+                downloaded = root / "incoming" / metadata["tag_name"] / asset["name"]
+                self.assertEqual(downloaded.read_bytes(), ipas[metadata["tag_name"]].read_bytes())
+                channel_source = json.loads((root / "site" / f"{channel}.json").read_text())
+                self.assertEqual(channel_source["apps"], [app])
+                self.assertEqual(channel_source["sourceURL"], f"https://sidestore.opentubex.org/{channel}.json")
+
+    def test_old_nightly_identity_leaves_existing_site_untouched(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            site = root / "site"
+            site.mkdir()
+            existing = site / "source.json"
+            existing.write_text("existing source")
+            with self.assertRaisesRegex(ValueError, "Unexpected nightly IPA identity"):
+                self.run_publisher(root, nightly_identity="stable")
+            self.assertEqual(existing.read_text(), "existing source")
 
 
 if __name__ == "__main__":
