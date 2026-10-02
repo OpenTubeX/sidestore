@@ -36,24 +36,21 @@ generates the combined source and both channel-only sources. Each source links
 directly to the original IPA in the application repository's GitHub release.
 
 Stable uses `org.opentubex.app`; nightly uses `org.opentubex.app.nightly` so both
-can be installed on the same device. Publishing fails if either channel is
-missing or an IPA has the wrong identity, leaving the deployed source intact.
+can be installed on the same device. If the latest nightly still uses the
+stable app identity, publishing reports that it is waiting for a compatible
+nightly and skips deployment, keeping the existing source intact. Missing
+channels or other unexpected identities fail validation before deployment.
 The workflow does not modify IPAs or create GitHub releases.
 
 The sources and landing page are deployed to GitHub Pages. Publishing runs on
 pushes to `main`, manual runs, and `opentubex-release` or `opentubex-nightly`
 repository dispatch events.
 
-The main-repository notifications being added in
-[OpenTubeX/OpenTubeX#1783](https://github.com/OpenTubeX/OpenTubeX/pull/1783) wait
-for release metadata and the unsigned IPA's public download to become
-available before sending an event. Nightly notifications run independently
-for each package repository, so an unavailable package for another platform
-does not delay SideStore.
-
-Until that change lands, this repository also refreshes every 30 minutes.
-The fallback schedule will be removed after the main repository starts sending
-release notifications.
+Stable and nightly release workflows in `OpenTubeX/OpenTubeX` notify this
+repository after release metadata and the unsigned IPA's public download become
+available. The readiness checks retry while metadata or downloads are missing.
+Nightly notifications run independently for each package repository, so an
+unavailable package for another platform does not delay SideStore.
 
 The catalog icons live in `static/stable.png` and `static/nightly.png`. Keep
 both PNGs in sync with the app's branding, including the nightly wrench badge.

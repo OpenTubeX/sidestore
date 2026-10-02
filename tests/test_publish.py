@@ -39,10 +39,10 @@ class PublishTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             publish.select_releases([release("v0.35.2-beta", "2026-10-01T00:00:00Z")])
 
-    def make_ipa(self, directory, *, channel="stable"):
+    def make_ipa(self, directory, *, channel="stable", bundle_id=None):
         path = Path(directory, f"{channel}.ipa")
         app_id = publish.NIGHTLY_ID if channel == "nightly" else "org.opentubex.app"
-        info = {"CFBundleIdentifier": app_id,
+        info = {"CFBundleIdentifier": bundle_id or app_id,
                 "CFBundleVersion": "13499", "CFBundleShortVersionString": "0.35.2",
                 "MinimumOSVersion": "17.4", "NSCameraUsageDescription": "Scan a QR code."}
         with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -98,13 +98,22 @@ class PublishTests(unittest.TestCase):
         static.mkdir()
         (static / "index.html").write_text("SideStore")
         with patch.object(publish, "ROOT", root), patch.object(publish, "gh", side_effect=gh):
-            publish.main()
-        return releases, ipas
+            ready = publish.main()
+        return releases, ipas, ready
+
+    def test_unexpected_nightly_identity_is_not_treated_as_waiting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ipa = self.make_ipa(directory, channel="nightly", bundle_id="org.unexpected.app")
+            metadata = release("v0.35.2-nightly-1758", "2026-10-02T12:00:00Z", prerelease=True)
+            with self.assertRaisesRegex(ValueError, "Unexpected nightly IPA identity") as error:
+                publish.app_listing("nightly", metadata, ipa, "https://example.org/app.ipa")
+            self.assertNotIsInstance(error.exception, publish.NightlyNotReady)
 
     def test_generates_all_sources_using_unmodified_official_release_ipas(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            releases, ipas = self.run_publisher(root)
+            releases, ipas, ready = self.run_publisher(root)
+            self.assertTrue(ready)
             source = json.loads((root / "site/source.json").read_text())
             self.assertEqual(len(source["apps"]), 2)
             for channel, metadata, app in zip(("stable", "nightly"), releases, source["apps"]):
@@ -124,8 +133,11 @@ class PublishTests(unittest.TestCase):
             site.mkdir()
             existing = site / "source.json"
             existing.write_text("existing source")
-            with self.assertRaisesRegex(ValueError, "Unexpected nightly IPA identity"):
-                self.run_publisher(root, nightly_identity="stable")
+            with patch("builtins.print") as output:
+                _, _, ready = self.run_publisher(root, nightly_identity="stable")
+            self.assertFalse(ready)
+            self.assertTrue(any("::notice" in call.args[0] and "Waiting" in call.args[0]
+                                for call in output.call_args_list))
             self.assertEqual(existing.read_text(), "existing source")
 
 

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import plistlib
 import re
 import shutil
@@ -13,6 +14,10 @@ UPSTREAM = "OpenTubeX/OpenTubeX"
 SOURCE_URL = "https://sidestore.opentubex.org/source.json"
 NIGHTLY_ID = "org.opentubex.app.nightly"
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class NightlyNotReady(ValueError):
+    pass
 
 
 def gh(*args):
@@ -57,8 +62,11 @@ def app_listing(channel, release, ipa, download_url):
     _, info = inspect_ipa(ipa)
     expected_id = NIGHTLY_ID if channel == "nightly" else "org.opentubex.app"
     if info["CFBundleIdentifier"] != expected_id:
-        raise ValueError(f"Unexpected {channel} IPA identity: expected {expected_id}, "
-                         f"got {info['CFBundleIdentifier']}")
+        error = ValueError
+        if channel == "nightly" and info["CFBundleIdentifier"] == "org.opentubex.app":
+            error = NightlyNotReady
+        raise error(f"Unexpected {channel} IPA identity: expected {expected_id}, "
+                    f"got {info['CFBundleIdentifier']}")
     privacy = {key: value for key, value in info.items() if key.startswith("NS") and key.endswith("UsageDescription")}
     with ipa.open("rb") as file:
         digest = hashlib.file_digest(file, "sha256").hexdigest()
@@ -102,7 +110,13 @@ def main():
         if ipa.stat().st_size != asset["size"]:
             raise ValueError("Downloaded IPA size does not match release metadata")
         download_url = asset["browser_download_url"]
-        apps.append(app_listing(channel, release, ipa, download_url))
+        try:
+            apps.append(app_listing(channel, release, ipa, download_url))
+        except NightlyNotReady:
+            print("::notice title=Waiting for a compatible nightly::The latest nightly IPA still uses "
+                  "the stable app identity. Keeping the deployed source until a nightly with "
+                  f"{NIGHTLY_ID} is published.")
+            return False
         print(f"{channel}: {release['tag_name']} ({apps[-1]['bundleIdentifier']})")
     site = ROOT / "site"
     if site.exists():
@@ -116,7 +130,11 @@ def main():
                           "name": f"OpenTubeX {channel.title()}", "apps": [app],
                           "sourceURL": SOURCE_URL.replace("source.json", f"{channel}.json")}
         (site / f"{channel}.json").write_text(json.dumps(channel_source, indent=2) + "\n")
+    return True
 
 
 if __name__ == "__main__":
-    main()
+    ready = main()
+    if output := os.environ.get("GITHUB_OUTPUT"):
+        with open(output, "a") as file:
+            file.write(f"ready={str(ready).lower()}\n")
