@@ -45,6 +45,7 @@ class PublishTests(unittest.TestCase):
         with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("Payload/App.app/Info.plist", plistlib.dumps(info, fmt=plistlib.FMT_BINARY))
             archive.writestr("Payload/App.app/capacitor.config.json", json.dumps({"appId": "org.opentubex.app", "appName": "OpenTubeX", "plugins": {"Share": {}}}))
+            archive.writestr("Payload/App.app/public/web.js", br"const openUrl = url => url.replace(/^opentubex:(?:\/\/)?/, '').replace(/^(https?)\/\//, '$1://');")
             executable = zipfile.ZipInfo("Payload/App.app/App")
             executable.external_attr = 0o100755 << 16
             archive.writestr(executable, b"executable")
@@ -63,7 +64,7 @@ class PublishTests(unittest.TestCase):
             with zipfile.ZipFile(original) as source, zipfile.ZipFile(output) as target:
                 self.assertEqual(source.namelist(), target.namelist())
                 for name in source.namelist():
-                    if name.endswith(("Info.plist", "capacitor.config.json")):
+                    if name.endswith(("Info.plist", "capacitor.config.json", "public/web.js")):
                         continue
                     self.assertEqual(source.read(name), target.read(name))
                     self.assertEqual(source.getinfo(name).external_attr, target.getinfo(name).external_attr)
@@ -75,6 +76,7 @@ class PublishTests(unittest.TestCase):
                 self.assertEqual(config["appId"], publish.NIGHTLY_ID)
                 self.assertEqual(config["appName"], "OpenTubeX Nightly")
                 self.assertEqual(config["plugins"], {"Share": {}})
+                self.assertIn(br"/^opentubex(?:-nightly)?:(?:\/\/)?/", target.read("Payload/App.app/public/web.js"))
             second = Path(directory, "second.ipa")
             publish.repackage_nightly(original, second)
             self.assertEqual(output.read_bytes(), second.read_bytes())
@@ -97,7 +99,7 @@ class PublishTests(unittest.TestCase):
             self.assertEqual(listing["bundleIdentifier"], publish.NIGHTLY_ID)
             version = listing["versions"][0]
             self.assertEqual(version["version"], "0.35.2")
-            self.assertEqual(version["buildVersion"], "13499.2")
+            self.assertEqual(version["buildVersion"], "13499.3")
             self.assertEqual(version["size"], output.stat().st_size)
             self.assertEqual(version["minOSVersion"], "17.4")
             self.assertEqual(listing["appPermissions"]["privacy"], {"NSCameraUsageDescription": "Scan a QR code."})

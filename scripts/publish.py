@@ -15,8 +15,8 @@ UPSTREAM = "OpenTubeX/OpenTubeX"
 REPOSITORY = "OpenTubeX/sidestore"
 SOURCE_URL = "https://sidestore.opentubex.org/source.json"
 NIGHTLY_ID = "org.opentubex.app.nightly"
-# The first published package is immutable; revision 2 separates URL routing.
-REPACKAGE_REVISION = 2
+# Earlier packages are immutable; revision 3 also recognizes nightly links.
+REPACKAGE_REVISION = 3
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -84,6 +84,14 @@ def repackage_nightly(original, output):
         config_path = app_path + "capacitor.config.json"
         if config_path not in names:
             raise ValueError("Missing Capacitor configuration")
+        # Released IPAs predate the nightly scheme. Update their URL normalizer;
+        # future native nightly IPAs are served directly without repackaging.
+        old_scheme = br"/^opentubex:(?:\/\/)?/"
+        new_scheme = br"/^opentubex(?:-nightly)?:(?:\/\/)?/"
+        renderer_paths = [name for name in names if name.startswith(app_path + "public/") and name.endswith(".js")
+                          and old_scheme in source.read(name)]
+        if len(renderer_paths) != 1 or source.read(renderer_paths[0]).count(old_scheme) != 1:
+            raise ValueError("Expected exactly one released renderer URL normalizer")
         for entry in source.infolist():
             content = source.read(entry)
             if entry.filename == plist_path:
@@ -92,6 +100,8 @@ def repackage_nightly(original, output):
                 config = json.loads(content)
                 config.update(appId=NIGHTLY_ID, appName="OpenTubeX Nightly")
                 content = (json.dumps(config, indent=2) + "\n").encode()
+            elif entry.filename == renderer_paths[0]:
+                content = content.replace(old_scheme, new_scheme)
             # Retain file permissions, symlinks, timestamps and nested frameworks.
             target.writestr(entry, content)
     return info
