@@ -67,6 +67,10 @@ def repackage_nightly(original, output):
     for url_type in info.get("CFBundleURLTypes", []):
         if url_type.get("CFBundleURLName") == "org.opentubex.app":
             url_type["CFBundleURLName"] = NIGHTLY_ID
+        url_type["CFBundleURLSchemes"] = [
+            "opentubex-nightly" if scheme == "opentubex" else scheme
+            for scheme in url_type.get("CFBundleURLSchemes", [])
+        ]
 
     with zipfile.ZipFile(original) as source, zipfile.ZipFile(output, "w") as target:
         names = source.namelist()

@@ -70,7 +70,7 @@ class PublishTests(unittest.TestCase):
                 info = plistlib.loads(target.read("Payload/App.app/Info.plist"))
                 self.assertEqual(info["CFBundleIdentifier"], publish.NIGHTLY_ID)
                 self.assertEqual(info["CFBundleDisplayName"], "OpenTubeX Nightly")
-                self.assertEqual(info["CFBundleURLTypes"][0]["CFBundleURLSchemes"], ["opentubex"])
+                self.assertEqual(info["CFBundleURLTypes"][0]["CFBundleURLSchemes"], ["opentubex-nightly"])
                 config = json.loads(target.read("Payload/App.app/capacitor.config.json"))
                 self.assertEqual(config["appId"], publish.NIGHTLY_ID)
                 self.assertEqual(config["appName"], "OpenTubeX Nightly")
