@@ -97,7 +97,7 @@ class PublishTests(unittest.TestCase):
             self.assertEqual(listing["bundleIdentifier"], publish.NIGHTLY_ID)
             version = listing["versions"][0]
             self.assertEqual(version["version"], "0.35.2")
-            self.assertEqual(version["buildVersion"], "13499")
+            self.assertEqual(version["buildVersion"], "13499.2")
             self.assertEqual(version["size"], output.stat().st_size)
             self.assertEqual(version["minOSVersion"], "17.4")
             self.assertEqual(listing["appPermissions"]["privacy"], {"NSCameraUsageDescription": "Scan a QR code."})

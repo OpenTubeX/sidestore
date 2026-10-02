@@ -15,6 +15,8 @@ UPSTREAM = "OpenTubeX/OpenTubeX"
 REPOSITORY = "OpenTubeX/sidestore"
 SOURCE_URL = "https://sidestore.opentubex.org/source.json"
 NIGHTLY_ID = "org.opentubex.app.nightly"
+# The first published package is immutable; revision 2 separates URL routing.
+REPACKAGE_REVISION = 2
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -64,6 +66,7 @@ def repackage_nightly(original, output):
     info["CFBundleIdentifier"] = NIGHTLY_ID
     info["CFBundleDisplayName"] = "OpenTubeX Nightly"
     info["CFBundleName"] = "OpenTubeX Nightly"
+    info["CFBundleVersion"] = f"{info['CFBundleVersion']}.{REPACKAGE_REVISION}"
     for url_type in info.get("CFBundleURLTypes", []):
         if url_type.get("CFBundleURLName") == "org.opentubex.app":
             url_type["CFBundleURLName"] = NIGHTLY_ID
@@ -127,7 +130,8 @@ def app_listing(channel, release, ipa, download_url):
 
 
 def publish_nightly(release, ipa):
-    tag = release["tag_name"]
+    upstream_tag = release["tag_name"]
+    tag = f"{upstream_tag}-sidestore-{REPACKAGE_REVISION}"
     # Query first so an unchanged scheduled run never replaces an installed build.
     releases = json.loads(gh("api", "--paginate", "--slurp", f"repos/{REPOSITORY}/releases?per_page=100"))
     existing = next((item for page in releases for item in page if item["tag_name"] == tag), None)
@@ -147,16 +151,17 @@ def publish_nightly(release, ipa):
             return asset["browser_download_url"]
         gh("release", "upload", tag, str(ipa), "--repo", REPOSITORY)
     else:
-        notes = (f"OpenTubeX Nightly for SideStore, based on [{tag}]({release['html_url']}).\n\n"
+        notes = (f"OpenTubeX Nightly for SideStore, based on [{upstream_tag}]({release['html_url']}).\n\n"
                  "The unsigned IPA has a separate bundle identifier and display name so it can "
-                 "install alongside stable. SideStore signs it with your Apple Account.\n\n"
-                 f"App source: https://github.com/{UPSTREAM}/tree/{tag}\n"
+                 "install alongside stable, and registers the opentubex-nightly URL scheme. "
+                 "The build number includes the packaging revision. SideStore signs it with your Apple Account.\n\n"
+                 f"App source: https://github.com/{UPSTREAM}/tree/{upstream_tag}\n"
                  "Repository source: https://github.com/OpenTubeX/sidestore\n")
         with tempfile.NamedTemporaryFile(mode="w", suffix=".md") as file:
             file.write(notes)
             file.flush()
             gh("release", "create", tag, str(ipa), "--repo", REPOSITORY,
-               "--title", f"OpenTubeX Nightly {tag.removeprefix('v')}",
+               "--title", f"OpenTubeX Nightly {upstream_tag.removeprefix('v')} (package {REPACKAGE_REVISION})",
                "--notes-file", file.name, "--prerelease", "--latest=false")
     return f"https://github.com/{REPOSITORY}/releases/download/{tag}/{ipa.name}"
 
@@ -185,7 +190,7 @@ def main():
             repackage_nightly(ipa, output)
             ipa = output
             download_url = (publish_nightly(release, ipa) if args.publish else
-                            f"https://github.com/{REPOSITORY}/releases/download/{release['tag_name']}/{ipa.name}")
+                            f"https://github.com/{REPOSITORY}/releases/download/{release['tag_name']}-sidestore-{REPACKAGE_REVISION}/{ipa.name}")
         apps.append(app_listing(channel, release, ipa, download_url))
         print(f"{channel}: {release['tag_name']} ({apps[-1]['bundleIdentifier']})")
     site = ROOT / "site"
