@@ -40,9 +40,20 @@ can be installed on the same device. Publishing fails if either channel is
 missing or an IPA has the wrong identity, leaving the deployed source intact.
 The workflow does not modify IPAs or create GitHub releases.
 
-The sources and landing page are deployed to GitHub Pages. The workflow runs on
-pushes to `main`, every 30 minutes, manual runs, and `opentubex-release` or
-`opentubex-nightly` repository dispatch events.
+The sources and landing page are deployed to GitHub Pages. Publishing runs on
+pushes to `main`, manual runs, and `opentubex-release` or `opentubex-nightly`
+repository dispatch events.
+
+The main-repository notifications being added in
+[OpenTubeX/OpenTubeX#1783](https://github.com/OpenTubeX/OpenTubeX/pull/1783) wait
+for release metadata and the unsigned IPA's public download to become
+available before sending an event. Nightly notifications run independently
+for each package repository, so an unavailable package for another platform
+does not delay SideStore.
+
+Until that change lands, this repository also refreshes every 30 minutes.
+The fallback schedule will be removed after the main repository starts sending
+release notifications.
 
 The catalog icons live in `static/stable.png` and `static/nightly.png`. Keep
 both PNGs in sync with the app's branding, including the nightly wrench badge.
@@ -53,8 +64,8 @@ Configure GitHub Pages to use GitHub Actions, set `sidestore.opentubex.org` as
 the custom domain, and add a DNS `CNAME` from that name to `opentubex.github.io`.
 The workflow uses the automatic `GITHUB_TOKEN` to read releases and deploy
 Pages; no Apple signing credentials or additional Actions secrets are required.
-Any external release dispatch must use a token with permission to send
-repository dispatch events to this repository.
+The `PUSH_TOKEN` used by the OpenTubeX application repository must have write
+access to this repository so it can send release dispatches.
 
 For local checks, install Python 3.11 or newer and GitHub CLI, authenticate
 with `gh auth login`, then run:
