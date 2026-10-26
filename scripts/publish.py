@@ -13,6 +13,8 @@ from pathlib import Path
 UPSTREAM = "OpenTubeX/OpenTubeX"
 SOURCE_URL = "https://sidestore.opentubex.org/source.json"
 NIGHTLY_ID = "org.opentubex.app.nightly"
+# OpenTubeX commits this short "What's new" text to each stable release tag.
+CHANGELOG_PATH = "fastlane/metadata/android/en-US/changelogs/default.txt"
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -22,6 +24,14 @@ class NightlyNotReady(ValueError):
 
 def gh(*args):
     return subprocess.check_output(["gh", *args], text=True)
+
+
+def release_notes(release):
+    try:
+        return gh("api", "--header", "Accept: application/vnd.github.raw",
+                  f"repos/{UPSTREAM}/contents/{CHANGELOG_PATH}?ref={release['tag_name']}").strip()
+    except subprocess.CalledProcessError:
+        return ""
 
 
 def select_releases(releases):
@@ -58,7 +68,7 @@ def inspect_ipa(path):
         return plist_path, info
 
 
-def app_listing(channel, release, ipa, download_url):
+def app_listing(channel, release, ipa, download_url, notes=""):
     _, info = inspect_ipa(ipa)
     expected_id = NIGHTLY_ID if channel == "nightly" else "org.opentubex.app"
     if info["CFBundleIdentifier"] != expected_id:
@@ -85,7 +95,8 @@ def app_listing(channel, release, ipa, download_url):
             "version": info["CFBundleShortVersionString"],
             "buildVersion": info["CFBundleVersion"],
             "date": release["published_at"],
-            "localizedDescription": f"{release['tag_name']}\n\nRelease notes: {release['html_url']}",
+            "localizedDescription": (f"{notes}\n\nFull release notes: {release['html_url']}" if notes
+                                     else f"{release['tag_name']}\n\nRelease notes: {release['html_url']}"),
             "downloadURL": download_url,
             "size": ipa.stat().st_size,
             "sha256": digest,
@@ -111,7 +122,8 @@ def main():
             raise ValueError("Downloaded IPA size does not match release metadata")
         download_url = asset["browser_download_url"]
         try:
-            apps.append(app_listing(channel, release, ipa, download_url))
+            notes = release_notes(release) if channel == "stable" else ""
+            apps.append(app_listing(channel, release, ipa, download_url, notes))
         except NightlyNotReady:
             print("::notice title=Waiting for a compatible nightly::The latest nightly IPA still uses "
                   "the stable app identity. Keeping the deployed source until a nightly with "

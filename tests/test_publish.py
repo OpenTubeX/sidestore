@@ -71,7 +71,7 @@ class PublishTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, f"Unexpected {other_channel} IPA identity"):
                     publish.app_listing(other_channel, metadata, ipa, url)
 
-    def run_publisher(self, root, *, nightly_identity="nightly"):
+    def run_publisher(self, root, *, nightly_identity="nightly", notes="Highlights\n• Added groups\n"):
         fixtures = root / "fixtures"
         fixtures.mkdir()
         releases = [release("v0.35.2-beta", "2026-09-30T22:00:00Z"),
@@ -89,6 +89,11 @@ class PublishTests(unittest.TestCase):
         def gh(*args):
             if args == ("api", "--paginate", "--slurp", "repos/OpenTubeX/OpenTubeX/releases?per_page=100"):
                 return json.dumps([releases])
+            if args == ("api", "--header", "Accept: application/vnd.github.raw",
+                        f"repos/OpenTubeX/OpenTubeX/contents/{publish.CHANGELOG_PATH}?ref=v0.35.2-beta"):
+                if notes is None:
+                    raise publish.subprocess.CalledProcessError(1, "gh")
+                return notes
             if args[:2] == ("release", "download") and args[3:5] == ("--repo", "OpenTubeX/OpenTubeX"):
                 shutil.copyfile(ipas[args[2]], Path(args[8], args[6]))
                 return ""
@@ -125,6 +130,19 @@ class PublishTests(unittest.TestCase):
                 channel_source = json.loads((root / "site" / f"{channel}.json").read_text())
                 self.assertEqual(channel_source["apps"], [app])
                 self.assertEqual(channel_source["sourceURL"], f"https://sidestore.opentubex.org/{channel}.json")
+
+    def test_stable_listing_describes_the_release_changes(self):
+        for notes, stable_description in (
+            ("Highlights\n• Added groups\n", "Highlights\n• Added groups\n\nFull release notes: "),
+            (None, "v0.35.2-beta\n\nRelease notes: "),
+        ):
+            with self.subTest(notes=notes), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                releases, _, _ = self.run_publisher(root, notes=notes)
+                source = json.loads((root / "site/source.json").read_text())
+                stable, nightly = (app["versions"][0]["localizedDescription"] for app in source["apps"])
+                self.assertEqual(stable, stable_description + releases[0]["html_url"])
+                self.assertEqual(nightly, f"v0.35.2-nightly-1758\n\nRelease notes: {releases[1]['html_url']}")
 
     def test_old_nightly_identity_leaves_existing_site_untouched(self):
         with tempfile.TemporaryDirectory() as directory:
