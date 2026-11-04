@@ -2,7 +2,7 @@
 <!-- Created with qrencode 4.1.1 (https://fukuchi.org/works/qrencode/index.html) -->
 <svg width="6.03cm" height="6.03cm" viewBox="0 0 57 57" preserveAspectRatio="xMidYMid meet" version="1.1" xmlns="http://www.w3.org/2000/svg">
 	<!-- High error correction preserves scanning with the centered logo. -->
-<style>#Pattern { fill: #0b3d3e; } @media (prefers-color-scheme: dark) { #Pattern { fill: #54d5ca; } }</style>
+<style>#Pattern { fill: #1a1a1a; } @media (prefers-color-scheme: dark) { #Pattern { fill: #ff6253; } }</style>
 <g id="QRcode">
 		<g id="Pattern" transform="translate(4,4)">
 			<rect x="0" y="0" width="1" height="1" />
