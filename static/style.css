@@ -1,6 +1,6 @@
 @import url("https://fonts.bunny.net/css?family=ibm-plex-mono:400,500|ibm-plex-sans:400,500,600|space-grotesk:500,600,700");
 
-:root { color-scheme: dark; --ink: #f2f2f2; --accent: #f34132; --accent-deep: #ff6253; --mist: #111111; --mist-2: #1c1c1c; --surface: #171717; --slate: #a3a3a3; --slate-muted: #7a7a7a; --line: rgb(255 255 255 / 10%); --code-bg: #0c0c0c; --code-text: #f5f5f5; --syntax-command: #ff8478; --syntax-option: #d3b5ff; --syntax-string: #b5dda9; --syntax-number: #ffc093; --syntax-operator: #f2a8bd; --syntax-path: #91c4ff; --font-display: "Space Grotesk", sans-serif; --font-body: "IBM Plex Sans", sans-serif; --font-mono: "IBM Plex Mono", ui-monospace, monospace; --scrollbar-size: 10px; --scrollbar-track: color-mix(in srgb, var(--mist-2) 80%, transparent); --scrollbar-thumb: color-mix(in srgb, var(--accent) 38%, var(--slate-muted)); --scrollbar-thumb-hover: color-mix(in srgb, var(--accent) 68%, var(--ink)); --selection-bg: #c62d1f; --selection-text: #ffffff; }
+:root { color-scheme: dark; --ink: #f2f2f2; --accent: #f34132; --accent-deep: #ff6253; --mist: #111111; --mist-2: #1c1c1c; --surface: #171717; --slate: #a3a3a3; --slate-muted: #7a7a7a; --line: rgb(255 255 255 / 10%); --code-bg: #0c0c0c; --code-text: #f5f5f5; --font-display: "Space Grotesk", sans-serif; --font-body: "IBM Plex Sans", sans-serif; --font-mono: "IBM Plex Mono", ui-monospace, monospace; --scrollbar-size: 10px; --scrollbar-track: color-mix(in srgb, var(--mist-2) 80%, transparent); --scrollbar-thumb: color-mix(in srgb, var(--accent) 38%, var(--slate-muted)); --scrollbar-thumb-hover: color-mix(in srgb, var(--accent) 68%, var(--ink)); --selection-bg: #c62d1f; --selection-text: #ffffff; }
 @media (prefers-color-scheme: light) { :root { color-scheme: light; --ink: #1a1a1a; --accent: #f34132; --accent-deep: #b8291c; --mist: #f6f5f4; --mist-2: #ebe8e6; --surface: #ffffff; --slate: #4f4f4f; --slate-muted: #737373; --line: rgb(26 26 26 / 10%); --code-bg: #1a1a1a; --code-text: #f5f5f5; --scrollbar-track: color-mix(in srgb, var(--mist-2) 70%, transparent); --scrollbar-thumb: color-mix(in srgb, var(--accent) 42%, var(--slate-muted)); --scrollbar-thumb-hover: color-mix(in srgb, var(--accent) 72%, var(--ink)); --selection-bg: #c62d1f; --selection-text: #ffffff; } }
 * { box-sizing: border-box; }
 ::selection { color: var(--selection-text); background: var(--selection-bg); }
@@ -21,28 +21,8 @@ p { margin: 0.75rem 0; }
 a { color: var(--accent-deep); text-decoration-color: color-mix(in srgb, var(--accent) 38%, transparent); text-underline-offset: 0.15em; }
 a:hover { text-decoration-color: var(--accent); }
 a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-p code { padding: 0.08em 0.32em; color: var(--ink); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); border: 1px solid var(--line); border-radius: 0.25rem; font-size: 0.88em; }
-.card { max-width: 100%; min-width: 0; margin: 1rem 0 1.35rem; overflow: hidden; background: var(--code-bg); border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent); border-radius: 0.4rem; box-shadow: 0 0.8rem 2.5rem rgb(0 0 0 / 10%); }
-.code-block { position: relative; min-width: 0; }
-pre { max-width: 100%; margin: 0; padding: 1rem 3.8rem 1.35rem 1.1rem; overflow-x: auto; color: var(--code-text); font-size: 0.84rem; line-height: 1.65; scrollbar-width: none; }
-pre::-webkit-scrollbar { display: none; }
-.code-scrollbar { position: absolute; right: 0.4rem; bottom: 0.15rem; left: 0.4rem; z-index: 3; display: flex; align-items: flex-end; height: 0.7rem; background: transparent; touch-action: none; user-select: none; cursor: pointer; }
-.code-scrollbar[hidden] { display: none !important; }
-.code-scrollbar__thumb { height: 3px; min-width: 1.5rem; border-radius: 999px; background: color-mix(in srgb, var(--scrollbar-thumb) 88%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--surface) 55%, transparent); cursor: grab; outline: none; }
-.code-scrollbar__thumb:hover, .code-scrollbar__thumb:focus-visible { height: 4px; background: var(--scrollbar-thumb-hover); }
-.code-scrollbar.is-dragging .code-scrollbar__thumb, .code-scrollbar__thumb:active { cursor: grabbing; height: 4px; background: var(--scrollbar-thumb-hover); }
 code { font-family: var(--font-mono); }
-.token-command { color: var(--syntax-command); } .token-option { color: var(--syntax-option); } .token-string { color: var(--syntax-string); } .token-number { color: var(--syntax-number); } .token-operator { color: var(--syntax-operator); } .token-path { color: var(--syntax-path); }
-.copy-button { position: absolute; top: 0.6rem; right: 0.6rem; display: grid; width: 2rem; height: 2rem; padding: 0; place-items: center; color: rgb(245 245 245 / 70%); background: color-mix(in srgb, var(--code-bg) 82%, var(--accent)); border: 1px solid rgb(245 245 245 / 25%); border-radius: 0.35rem; cursor: pointer; opacity: 0; transition: color 0.15s, border-color 0.15s, opacity 0.15s, background 0.15s; }
-.code-block:hover .copy-button, .copy-button:focus-visible, .copy-button[data-copied] { opacity: 1; }
-.copy-button:hover, .copy-button:focus-visible { color: #fff; background: color-mix(in srgb, var(--code-bg) 65%, var(--accent)); border-color: var(--accent); }
-.copy-button svg { width: 1rem; height: 1rem; }
-.copy-button .check-icon, .copy-button[data-copied] .copy-icon { display: none; }
-.copy-button[data-copied] { color: var(--syntax-string); }
-.copy-button[data-copied] .check-icon { display: block; }
-@media (max-width: 520px) { main { width: min(100% - 1.5rem, 45rem); padding-block: 2.5rem 3.5rem; } pre { padding-right: 3.5rem; font-size: 0.78rem; } }
-@media (hover: none) { .copy-button { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .copy-button { transition: none; } }
+@media (max-width: 520px) { main { width: min(100% - 1.5rem, 45rem); padding-block: 2.5rem 3.5rem; } }
 .repository-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 20rem); gap: 2rem; align-items: center; margin-top: 2.5rem; padding: 1.5rem; background: color-mix(in srgb, var(--surface) 90%, transparent); border: 1px solid var(--line); border-radius: 0.75rem; box-shadow: 0 0.8rem 2.5rem rgb(0 0 0 / 10%); }
 .repository-card h2 { margin-top: 0; padding-top: 0; border-top: 0; }
 .repository-card ol { margin: 1rem 0 1.5rem; padding-left: 1.3rem; }
