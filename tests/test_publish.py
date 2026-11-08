@@ -39,10 +39,10 @@ class PublishTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             publish.select_releases([release("v0.35.2-beta", "2026-10-01T00:00:00Z")])
 
-    def make_ipa(self, directory, *, channel="stable", bundle_id=None):
+    def make_ipa(self, directory, *, channel="stable"):
         path = Path(directory, f"{channel}.ipa")
         app_id = publish.NIGHTLY_ID if channel == "nightly" else "org.opentubex.app"
-        info = {"CFBundleIdentifier": bundle_id or app_id,
+        info = {"CFBundleIdentifier": app_id,
                 "CFBundleVersion": "13499", "CFBundleShortVersionString": "0.35.2",
                 "MinimumOSVersion": "17.4", "NSCameraUsageDescription": "Scan a QR code."}
         with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -71,7 +71,7 @@ class PublishTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, f"Unexpected {other_channel} IPA identity"):
                     publish.app_listing(other_channel, metadata, ipa, url)
 
-    def run_publisher(self, root, *, nightly_identity="nightly", notes="Highlights\n• Added groups\n"):
+    def run_publisher(self, root, *, notes="Highlights\n• Added groups\n"):
         fixtures = root / "fixtures"
         fixtures.mkdir()
         releases = [release("v0.35.2-beta", "2026-09-30T22:00:00Z"),
@@ -80,7 +80,7 @@ class PublishTests(unittest.TestCase):
         for channel, metadata in zip(("stable", "nightly"), releases):
             fixture = fixtures / channel
             fixture.mkdir()
-            ipa = self.make_ipa(fixture, channel=nightly_identity if channel == "nightly" else channel)
+            ipa = self.make_ipa(fixture, channel=channel)
             asset = metadata["assets"][0]
             asset.update(size=ipa.stat().st_size,
                          browser_download_url=f"https://github.com/OpenTubeX/OpenTubeX/releases/download/{metadata['tag_name']}/{asset['name']}")
@@ -103,22 +103,13 @@ class PublishTests(unittest.TestCase):
         static.mkdir()
         (static / "index.html").write_text("SideStore")
         with patch.object(publish, "ROOT", root), patch.object(publish, "gh", side_effect=gh):
-            ready = publish.main()
-        return releases, ipas, ready
-
-    def test_unexpected_nightly_identity_is_not_treated_as_waiting(self):
-        with tempfile.TemporaryDirectory() as directory:
-            ipa = self.make_ipa(directory, channel="nightly", bundle_id="org.unexpected.app")
-            metadata = release("v0.35.2-nightly-1758", "2026-10-02T12:00:00Z", prerelease=True)
-            with self.assertRaisesRegex(ValueError, "Unexpected nightly IPA identity") as error:
-                publish.app_listing("nightly", metadata, ipa, "https://example.org/app.ipa")
-            self.assertNotIsInstance(error.exception, publish.NightlyNotReady)
+            publish.main()
+        return releases, ipas
 
     def test_generates_all_sources_using_unmodified_official_release_ipas(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            releases, ipas, ready = self.run_publisher(root)
-            self.assertTrue(ready)
+            releases, ipas = self.run_publisher(root)
             source = json.loads((root / "site/source.json").read_text())
             self.assertEqual(len(source["apps"]), 2)
             for channel, metadata, app in zip(("stable", "nightly"), releases, source["apps"]):
@@ -138,25 +129,11 @@ class PublishTests(unittest.TestCase):
         ):
             with self.subTest(notes=notes), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                releases, _, _ = self.run_publisher(root, notes=notes)
+                releases, _ = self.run_publisher(root, notes=notes)
                 source = json.loads((root / "site/source.json").read_text())
                 stable, nightly = (app["versions"][0]["localizedDescription"] for app in source["apps"])
                 self.assertEqual(stable, stable_description + releases[0]["html_url"])
                 self.assertEqual(nightly, f"v0.35.2-nightly-1758\n\nRelease notes: {releases[1]['html_url']}")
-
-    def test_old_nightly_identity_leaves_existing_site_untouched(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            site = root / "site"
-            site.mkdir()
-            existing = site / "source.json"
-            existing.write_text("existing source")
-            with patch("builtins.print") as output:
-                _, _, ready = self.run_publisher(root, nightly_identity="stable")
-            self.assertFalse(ready)
-            self.assertTrue(any("::notice" in call.args[0] and "Waiting" in call.args[0]
-                                for call in output.call_args_list))
-            self.assertEqual(existing.read_text(), "existing source")
 
 
 if __name__ == "__main__":

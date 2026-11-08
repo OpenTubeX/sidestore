@@ -36,10 +36,8 @@ generates the combined source and both channel-only sources. Each source links
 directly to the original IPA in the application repository's GitHub release.
 
 Stable uses `org.opentubex.app`; nightly uses `org.opentubex.app.nightly` so both
-can be installed on the same device. If the latest nightly still uses the
-stable app identity, publishing reports that it is waiting for a compatible
-nightly and skips deployment, keeping the existing source intact. Missing
-channels or other unexpected identities fail validation before deployment.
+can be installed on the same device. Missing channels or unexpected identities
+fail validation before deployment.
 The workflow does not modify IPAs or create GitHub releases.
 
 The sources and landing page are deployed to GitHub Pages. Publishing runs on
