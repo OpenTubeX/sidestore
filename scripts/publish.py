@@ -89,7 +89,7 @@ def app_listing(channel, release, ipa, download_url, notes=""):
                                 + ("Nightly builds follow development and install alongside the stable app."
                                    if channel == "nightly" else "The stable channel contains official beta releases."),
         "iconURL": f"https://sidestore.opentubex.org/{channel}.png",
-        "tintColor": "2EC4B6",
+        "tintColor": "F34132",
         "appPermissions": {"entitlements": [], "privacy": privacy},
         "versions": [{
             "version": info["CFBundleShortVersionString"],
