@@ -15,7 +15,42 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Pages can skip a deployment whose build version it deployed before, and it
+  # only accepts a commit SHA as that version. A release or nightly dispatch runs
+  # on the same main commit as the previous deploy, so every run deploys a new
+  # commit with main's tree, kept on the pages-builds branch.
+  build-version:
+    name: Create Pages build commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - name: Create Pages build commit
+        id: commit
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          retries: 3
+          script: |
+            const { data: head } = await github.rest.git.getCommit({ ...context.repo, commit_sha: context.sha })
+            const { data: commit } = await github.rest.git.createCommit({
+              ...context.repo,
+              message: `Pages build for run ${context.runId}`,
+              tree: head.tree.sha,
+              parents: [context.sha],
+            })
+            try {
+              await github.rest.git.updateRef({ ...context.repo, ref: 'heads/pages-builds', sha: commit.sha, force: true })
+            } catch (error) {
+              if (error.status !== 422) throw error
+              await github.rest.git.createRef({ ...context.repo, ref: 'refs/heads/pages-builds', sha: commit.sha })
+            }
+            core.setOutput('sha', commit.sha)
+
   publish:
+    needs: build-version
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:
@@ -41,9 +76,36 @@ jobs:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - name: Upload site
+        id: upload
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site
+      # actions/deploy-pages always uses the run's commit SHA as the build version.
       - name: Deploy site
         id: deployment
-        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact_id }}
+          BUILD_VERSION: ${{ needs.build-version.outputs.sha }}
+        with:
+          retries: 3
+          script: |
+            const { data: deployment } = await github.request('POST /repos/{owner}/{repo}/pages/deployments', {
+              ...context.repo,
+              artifact_id: Number(process.env.ARTIFACT_ID),
+              pages_build_version: process.env.BUILD_VERSION,
+              oidc_token: await core.getIDToken(),
+            })
+            const id = deployment.id ?? deployment.status_url.split('/').pop()
+            core.setOutput('page_url', deployment.page_url)
+            const deadline = Date.now() + 20 * 60 * 1000
+            let status
+            do {
+              if (Date.now() > deadline) throw new Error(`Pages deployment ${id} timed out in ${status}`)
+              await new Promise(resolve => setTimeout(resolve, 10000))
+              ;({ data: { status } } = await github.request('GET /repos/{owner}/{repo}/pages/deployments/{id}', { ...context.repo, id }))
+              core.info(`Pages deployment ${id}: ${status}`)
+              if (['deployment_failed', 'deployment_content_failed', 'deployment_cancelled', 'deployment_lost'].includes(status)) {
+                throw new Error(`Pages deployment ${id} ended with ${status}`)
+              }
+            } while (status !== 'succeed')
